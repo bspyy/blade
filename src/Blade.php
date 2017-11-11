@@ -13,13 +13,12 @@ class Blade
 
     private $replaces    =   [
         /* foreach */
-        '/@foreach *\( *\$([a-zA-Z_]\w*) *as *\$([a-zA-Z_]\w*)\)/'                          => '<?php foreach( $$1 as $$2 ): ?>',
-        '/@foreach *\( *\$([a-zA-Z_]\w*) *as *\$([a-zA-Z_]\w*) *=> *\$([a-zA-Z_]\w*)\)/'    => '<?php foreach( $$1 as $$2 => $$3 ): ?>',
-        '/@endforeach/'                                                                     =>  '<?php endforeach; ?>',
+        '/@foreach *\( *((\(.*\))*.*) *\)/'  =>  '<?php foreach( $1 ): ?>',
+        '/@endforeach/'         =>  '<?php endforeach; ?>',
 
         /* if */
-        '/@if *\( *(.*) *\)/'                   => '<?php if($1): ?>',
-        '/@elseif *\( *\$([a-zA-Z_]\w*) *\)/'   => '<?php elseif($$1): ?>',
+        '/@if *\( *((\(.*\))*.*) *\)/'        => '<?php if( $1 ): ?>',
+        '/@elseif *\( *((\(.*\))*.*) *\)/'             => '<?php elseif( $1 ): ?>',
         '/@else\s/'                             => '<?php else: ?>',
         '/@endif/'                              => '<?php endif; ?>',
     ];
