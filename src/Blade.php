@@ -9,9 +9,20 @@ class Blade
 
     private $rightTag   =   '}';
 
-    private $compileFun =   ['Foreach','Extends','Include','If'];
-
     private $varPool    =   [];
+
+    private $replaces    =   [
+        /* foreach */
+        '/@foreach *\( *\$([a-zA-Z_]\w*) *as *\$([a-zA-Z_]\w*)\)/'                          => '<?php foreach( $$1 as $$2 ): ?>',
+        '/@foreach *\( *\$([a-zA-Z_]\w*) *as *\$([a-zA-Z_]\w*) *=> *\$([a-zA-Z_]\w*)\)/'    => '<?php foreach( $$1 as $$2 => $$3 ): ?>',
+        '/@endforeach/'                                                                     =>  '<?php endforeach; ?>',
+
+        /* if */
+        '/@if *\( *(.*) *\)/'                   => '<?php if($1): ?>',
+        '/@elseif *\( *\$([a-zA-Z_]\w*) *\)/'   => '<?php elseif($$1): ?>',
+        '/@else\s/'                             => '<?php else: ?>',
+        '/@endif/'                              => '<?php endif; ?>',
+    ];
 
     public function __construct($tplDir,$cacheDir,$leftTag = '',$rightTag = '')
     {
@@ -24,6 +35,9 @@ class Blade
         if($rightTag){
             $this->rightTag = $rightTag;
         }
+
+        //echo
+        $this->replaces['/'.preg_quote($this->leftTag).' *\$([a-zA-Z_]\w*);? *'.preg_quote($this->rightTag).'/'] = '<?php echo $$1 ?>';
     }
 
     public function assign($name,$val = '')
@@ -58,18 +72,12 @@ class Blade
      * @param string $ext
      * @return string
      */
-    private function compileTpl($content,$cacheName,$ext = '.php')
+    private function compile($content,$cacheName,$ext = '.php')
     {
-        foreach ($this->compileFun as $fun){
-            $method = 'compile'.$fun;
-            if(method_exists($this,$method)){
-                $content = $this->$method($content);
-            }
-        }
+        $content = $this->compileExtends($content);
 
-        //echo
-        $pattern = '/'.preg_quote($this->leftTag).' *\$([a-zA-Z_]\w*);? *'.preg_quote($this->rightTag).'/';
-        $content = preg_replace($pattern,'<?php echo $$1 ?>',$content);
+        $content = preg_replace(array_keys($this->replaces),array_values($this->replaces),$content);
+
 
         $compileFilename = $this->cacheDir.$cacheName.$ext;
         file_put_contents($compileFilename,$content);
@@ -96,33 +104,38 @@ class Blade
             //匹配当前内容中的@section标签，并获取内容
             $pattern = '/@section *\( *[\'|"]([a-zA-Z_]+)[\'|"] *\)(.*)(@stop|@endsection)/Us';
             preg_match_all($pattern,$tmpContent,$match2);
-            if(count($match2[0])){
-                $iterator = new MultipleIterator(MultipleIterator::MIT_KEYS_ASSOC);
-                $iterator->attachIterator(new ArrayIterator($match2[0]),'all');
-                $iterator->attachIterator(new ArrayIterator($match2[1]),'key');
-                $iterator->attachIterator(new ArrayIterator($match2[2]),'content');
 
-                foreach ($iterator as $item){
-                    //替换父级模板内容
-                    $pattern = '/@yield *\( *[\'|"]'.$item['key'].'[\'|"] *\)/';
-                    if(preg_match($pattern,$parentContent)){
-                        $parentContent = preg_replace($pattern,$item['content'],$parentContent);
-                        continue;
-                    }
+            if(!$match2[0]){//如果本页面没有@section 标签 直接获取父级模板内容进行处理
+                $content = $parentContent;
+                continue;
+            }
 
-                    $pattern = '/@section *\( *[\'|"]'.$item['key'].'[\'|"] *\)(.*)(@stop|@endsection)/Us';
-                    if(preg_match($pattern,$parentContent,$match3)){
-                       if($match3[2] == '@endsection'){
-                           //如果是以@endsection 结尾，进行替换，以@stop结束不替换
-                           if(strpos($item['content'],'@parent') !== false){
-                                $item['all'] = str_replace('@parent',$match3[1],$item['all']);
-                           }
-                           $parentContent = preg_replace($pattern,$item['all'],$parentContent);
-                       }
-                       continue;
-                    }
-                    $parentContent .= $item['all'];
+            $iterator = new MultipleIterator(MultipleIterator::MIT_KEYS_ASSOC);
+            $iterator->attachIterator(new ArrayIterator($match2[0]),'all');
+            $iterator->attachIterator(new ArrayIterator($match2[1]),'key');
+            $iterator->attachIterator(new ArrayIterator($match2[2]),'content');//(.*)
+
+            foreach ($iterator as $item){
+                //替换父级模板内容
+                $pattern = '/@yield *\( *[\'|"]'.$item['key'].'[\'|"] *\)/';
+                if(preg_match($pattern,$parentContent)){
+                    $parentContent = preg_replace($pattern,$item['content'],$parentContent);
+                    continue;
                 }
+
+                $pattern = '/@section *\( *[\'|"]'.$item['key'].'[\'|"] *\)(.*)(@stop|@endsection)/Us';
+                if(preg_match($pattern,$parentContent,$match3)){
+                    if($match3[2] == '@endsection'){
+                        //如果是以@endsection 结尾，进行替换，以@stop结束不替换
+                        if(strpos($item['content'],'@parent') !== false){
+                            $item['all'] = str_replace('@parent',$match3[1],$item['all']);
+                        }
+                        $parentContent = preg_replace($pattern,$item['all'],$parentContent);
+                    }
+                    continue;
+                }
+
+                $parentContent .= $item['all'];
             }
             $content = $parentContent;
         }
@@ -140,45 +153,14 @@ class Blade
         return $content;
     }
 
-    private function compileForeach($content)
-    {
-        //@foreach (items as item)
-        $pattern = '/@foreach *\( *\$([a-zA-Z_]\w*) *as *\$([a-zA-Z_]\w*)\)/';
-        $content = preg_replace($pattern,'<?php foreach( $$1 as $$2 ): ?>',$content);
-
-        $pattern = '/@foreach *\( *\$([a-zA-Z_]\w*) *as *\$([a-zA-Z_]\w*) *=> *\$([a-zA-Z_]\w*)\)/';
-        $content = preg_replace($pattern,'<?php foreach( $$1 as $$2 => $$3 ): ?>',$content);
-
-        $pattern = '/@endforeach/';
-        $content = preg_replace($pattern,'<?php endforeach; ?>',$content);
-
-        return $content;
-    }
-
-    private function compileIf($content)
-    {
-        $pattern = '/@if *\( *\$([a-zA-Z_]\w*) *\)/';
-        $content = preg_replace($pattern,'<?php if($$1): ?>',$content);
-
-        $pattern = '/@elseif *\( *\$([a-zA-Z_]\w*) *\)/';
-        $content = preg_replace($pattern,'<?php elseif($$1): ?>',$content);
-
-        $pattern = '/@else\s/';
-        $content = preg_replace($pattern,'<?php else: ?>',$content);
-
-        $pattern = '/@endif/';
-        $content = preg_replace($pattern,'<?php endif; ?>',$content);
-
-        return $content;
-    }
-
     public function display($tplName,$var = [])
     {
         $tplContent = $this->getTpl($tplName);
-        $filename = $this->compileTpl($tplContent,md5($tplName));
+        $filename = $this->compile($tplContent,md5($tplName));
         if(!file_exists($filename)){
             throw new Exception('结果文件不存在');
         }
+
         extract(array_merge($this->varPool,$var));
 
         @include $filename;
