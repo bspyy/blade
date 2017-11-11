@@ -1,0 +1,16 @@
+{
+  "name": "bspyy/blade",
+  "type": "framework",
+  "description": "",
+  "authors": [
+    {"name": "bapyy", "email": "knight7259@qq.com"}
+  ],
+  "require": {
+    "php": ">=5.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Blade\\": "/src"
+    }
+  }
+}
